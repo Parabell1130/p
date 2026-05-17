@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clinic EMR & Management System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/js/all.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <!-- Firebase SDK (Compat version for single file usage) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { font-family: 'IBM Plex Sans Thai', sans-serif; background-color: #0f172a; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #10b981; }
+        
+        .check-card:checked + div { background-color: #047857; border-color: #10b981; color: white; }
+        .esi-1:checked + div { background-color: #b91c1c; border-color: #ef4444; color: white; }
+        .esi-2:checked + div { background-color: #c2410c; border-color: #f97316; color: white; }
+        .esi-3:checked + div { background-color: #a16207; border-color: #eab308; color: white; }
+        .esi-4:checked + div { background-color: #15803d; border-color: #22c55e; color: white; }
+        .esi-5:checked + div { background-color: #1d4ed8; border-color: #3b82f6; color: white; }
+
+        .view-section { display: none; }
+        .view-section.active { display: block; animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .nav-btn.active { background-color: rgba(16, 185, 129, 0.15); color: #34d399; border-bottom: 2px solid #10b981; }
+
+        /* Print Styles */
+        @media print {
+            body * { visibility: hidden; }
+            #printArea, #printArea * { visibility: visible; }
+            #printArea { position: absolute; left: 0; top: 0; width: 100%; background: white !important; color: black !important; padding: 20px;}
+            .no-print { display: none !important; }
+            canvas { max-width: 100% !important; height: auto !important; }
+        }
+    </style>
+</head>
+<body class="text-slate-200 min-h-screen pb-12 flex flex-col">
+
+    <header class="bg-slate-900 border-b border-emerald-600/30 sticky top-0 z-50 shadow-lg no-print">
+        <div class="px-6 py-4 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="bg-emerald-500/20 p-2.5 rounded-lg text-emerald-400">
+                    <i class="fa-solid fa-notes-medical text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold text-emerald-400 leading-none">Clinic EMR System</h1>
+                    <p class="text-slate-400 text-sm mt-1" id="dbStatus">ระบบจัดการคลินิกอัจฉริยะ (Offline Mode)</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4 text-slate-400">
+                <div class="flex items-center gap-2 border-l border-slate-700 pl-4">
+                    <div class="w-8 h-8 rounded-full bg-emerald-700 flex items-center justify-center text-white text-sm font-bold">N</div>
+                    <span class="text-sm">พยาบาลวิชาชีพ</span>
+                </div>
+            </div>
+        </div>
+        
+        <nav class="flex px-6 border-t border-slate-800">
+            <button onclick="switchView('emr')" id="nav-emr" class="nav-btn active px-6 py-3 text-sm font-medium text-slate-400 hover:text-emerald-300 transition flex items-center gap-2"><i class="fa-solid fa-stethoscope"></i> ตรวจรักษา (EMR)</button>
+            <button onclick="switchView('patients')" id="nav-patients" class="nav-btn px-6 py-3 text-sm font-medium text-slate-400 hover:text-emerald-300 transition flex items-center gap-2"><i class="fa-solid fa-users"></i> ทะเบียนผู้ป่วย</button>
+            <button onclick="switchView('inventory')" id="nav-inventory" class="nav-btn px-6 py-3 text-sm font-medium text-slate-400 hover:text-emerald-300 transition flex items-center gap-2"><i class="fa-solid fa-boxes-stacked"></i> คลังยา/สต๊อก</button>
+            <button onclick="switchView('reports')" id="nav-reports" class="nav-btn px-6 py-3 text-sm font-medium text-slate-400 hover:text-emerald-300 transition flex items-center gap-2"><i class="fa-solid fa-chart-pie"></i> รายงานสถิติ</button>
+        </nav>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 mt-6 no-print">
+
+        <div id="view-emr" class="view-section active space-y-6">
+            <section class="bg-slate-900 rounded-xl border border-slate-800 shadow-lg p-5">
+                <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+                    <h2 class="text-lg font-semibold text-emerald-300 flex items-center gap-2"><i class="fa-solid fa-id-card"></i> 1. ข้อมูลผู้ป่วย (Patient Info)</h2>
+                    <div class="flex items-center gap-2">
+                        <div class="flex w-72">
+                            <input type="text" id="quickSearchInput" placeholder="ค้นหาด้วย HN หรือ ชื่อ..." class="w-full bg-slate-800 border border-slate-700 rounded-l-lg p-2 text-sm focus:border-emerald-500 focus:outline-none" onkeyup="if(event.key === 'Enter') quickSearchPatient()">
+                            <button onclick="quickSearchPatient()" class="bg-slate-700 hover:bg-slate-600 border border-slate-700 border-l-0 rounded-r-lg px-3 text-slate-300 transition"><i class="fa-solid fa-magnifying-glass"></i></button>
+                        </div>
+                        <button onclick="clearEMRForm()" class="bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/40 px-3 py-2 rounded-lg text-sm transition"><i class="fa-solid fa-eraser"></i> เคลียร์</button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Patient No. (HN)</label>
+                        <input type="text" id="patHn" placeholder="สร้างอัตโนมัติ" readonly class="w-full bg-slate-800/50 border border-slate-700 rounded-lg p-2 text-sm text-slate-500 cursor-not-allowed">
+                    </div>
+                    <div class="lg:col-span-2">
+                        <label class="block text-xs font-medium text-slate-400 mb-1">ชื่อ-สกุล</label>
+                        <input type="text" id="patName" placeholder="ระบุชื่อ-นามสกุล" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:border-emerald-500 focus:outline-none text-sm transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">เพศ</label>
+                        <select id="patGender" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:border-emerald-500 focus:outline-none text-sm transition">
+                            <option value="">-- เลือก --</option>
+                            <option value="M">ชาย (Male)</option>
+                            <option value="F">หญิง (Female)</option>
+                            <option value="O">อื่นๆ (Other)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">อายุ (ปี)</label>
+                        <input type="number" id="patAge" placeholder="อายุ" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:border-emerald-500 focus:outline-none text-sm transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">สัญชาติ</label>
+                        <select id="patNat" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:border-emerald-500 focus:outline-none text-sm transition">
+                            <option value="TH">ไทย</option><option value="MM">เมียนมา</option><option value="LA">ลาว</option><option value="KH">กัมพูชา</option><option value="OTHER">อื่นๆ</option>
+                        </select>
+                    </div>
+                    <div class="lg:col-span-2">
+                        <label class="block text-xs font-medium text-slate-400 mb-1">สถานที่ทำงาน (บริษัท)</label>
+                        <select id="patCompany" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:border-emerald-500 focus:outline-none text-sm transition">
+                            <option value="">-- เลือกบริษัท --</option>
+                            <option value="Company A">Company A (โรงงานหลัก)</option>
+                            <option value="Company B">Company B (คลังสินค้า)</option>
+                            <option value="Company C">Company C (สำนักงาน)</option>
+                        </select>
+                    </div>
+                    <div class="lg:col-span-2">
+                        <label class="block text-xs font-medium text-slate-400 mb-1">โรคประจำตัว (Medical Problem)</label>
+                        <input type="text" id="patMed" placeholder="ปฏิเสธ / ระบุโรค" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:border-emerald-500 focus:outline-none text-sm transition">
+                    </div>
+                    <div class="lg:col-span-2">
+                        <label class="block text-xs font-medium text-red-400 mb-1">ประวัติแพ้ยา/อาหาร (Allergy)</label>
+                        <input type="text" id="patAllergy" placeholder="ปฏิเสธ / ระบุสิ่งที่แพ้" class="w-full bg-slate-800 border border-red-900/50 rounded-lg p-2 focus:border-red-500 focus:outline-none text-sm text-red-200 placeholder-red-800/50 transition">
+                    </div>
+                </div>
+
+                <!-- Past History Section -->
+                <div id="pastHistorySection" class="hidden mt-4 pt-4 border-t border-slate-800">
+                    <h3 class="text-sm font-medium text-emerald-400 mb-2 flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left"></i> ประวัติการรักษาย้อนหลัง (Visit History)</h3>
+                    <div class="overflow-auto max-h-40 border border-slate-700 rounded-lg bg-slate-950/50">
+                        <table class="w-full text-left text-xs text-slate-300">
+                            <thead class="bg-slate-800 text-slate-400 sticky top-0">
+                                <tr><th class="px-3 py-2">วันที่/เวลา</th><th class="px-3 py-2">ประเภท</th><th class="px-3 py-2">วินิจฉัย (Dx)</th><th class="px-3 py-2">แผนการรักษา</th><th class="px-3 py-2">รายการที่จ่าย</th><th class="px-3 py-2 text-center w-12"><i class="fa-solid fa-magnifying-glass"></i></th></tr>
+                            </thead>
+                            <tbody id="pastHistoryBody" class="divide-y divide-slate-800"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div class="lg:col-span-6 space-y-6">
+                    <section class="bg-slate-900 rounded-xl border border-slate-800 shadow-lg p-5">
+                        <h2 class="text-lg font-semibold text-emerald-300 mb-4 flex items-center gap-2 border-b border-slate-800 pb-3"><i class="fa-solid fa-truck-medical"></i> 2. การคัดกรอง (Triage)</h2>
+                        
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-slate-400 mb-2">ระดับความรู้สึกตัว (AVPU)</label>
+                            <div class="grid grid-cols-4 gap-2">
+                                <label class="cursor-pointer"><input type="radio" name="avpu" class="check-card sr-only" checked><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">Alert</div></label>
+                                <label class="cursor-pointer"><input type="radio" name="avpu" class="check-card sr-only"><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">Verbal</div></label>
+                                <label class="cursor-pointer"><input type="radio" name="avpu" class="check-card sr-only"><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">Painful</div></label>
+                                <label class="cursor-pointer"><input type="radio" name="avpu" class="check-card sr-only"><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">Unresponsive</div></label>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-slate-400 mb-2">ESI Triage Level</label>
+                            <div class="grid grid-cols-5 gap-2">
+                                <label class="cursor-pointer"><input type="radio" name="esi" class="esi-1 sr-only"><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">1 Resus</div></label>
+                                <label class="cursor-pointer"><input type="radio" name="esi" class="esi-2 sr-only"><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">2 Emerg</div></label>
+                                <label class="cursor-pointer"><input type="radio" name="esi" class="esi-3 sr-only"><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">3 Urgent</div></label>
+                                <label class="cursor-pointer"><input type="radio" name="esi" class="esi-4 sr-only" checked><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">4 Less Urg</div></label>
+                                <label class="cursor-pointer"><input type="radio" name="esi" class="esi-5 sr-only"><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">5 Non Urg</div></label>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-slate-400 mb-2">ภาวะคุกคามต่อชีวิต (Life Threatening)</label>
+                            <div class="flex flex-wrap gap-2">
+                                <label class="cursor-pointer"><input type="checkbox" id="ltNone" class="check-card sr-only" checked onchange="handleLifeThreat('none')"><div class="px-3 py-1.5 border border-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-800 transition">ไม่มี (None)</div></label>
+                                <label class="cursor-pointer"><input type="checkbox" class="lt-item check-card sr-only" onchange="handleLifeThreat('item')"><div class="px-3 py-1.5 border border-red-900/50 rounded-lg text-xs font-semibold text-red-400 hover:bg-slate-800 transition">Cardiac arrest</div></label>
+                                <label class="cursor-pointer"><input type="checkbox" class="lt-item check-card sr-only" onchange="handleLifeThreat('item')"><div class="px-3 py-1.5 border border-red-900/50 rounded-lg text-xs font-semibold text-red-400 hover:bg-slate-800 transition">Ex Hemorrhage</div></label>
+                                <label class="cursor-pointer"><input type="checkbox" class="lt-item check-card sr-only" onchange="handleLifeThreat('item')"><div class="px-3 py-1.5 border border-orange-900/50 rounded-lg text-xs font-semibold text-orange-400 hover:bg-slate-800 transition">Airway</div></label>
+                                <label class="cursor-pointer"><input type="checkbox" class="lt-item check-card sr-only" onchange="handleLifeThreat('item')"><div class="px-3 py-1.5 border border-orange-900/50 rounded-lg text-xs font-semibold text-orange-400 hover:bg-slate-800 transition">Breathing</div></label>
+                                <label class="cursor-pointer"><input type="checkbox" class="lt-item check-card sr-only" onchange="handleLifeThreat('item')"><div class="px-3 py-1.5 border border-orange-900/50 rounded-lg text-xs font-semibold text-orange-400 hover:bg-slate-800 transition">Circulation</div></label>
+                                <label class="cursor-pointer"><input type="checkbox" class="lt-item check-card sr-only" onchange="handleLifeThreat('item')"><div class="px-3 py-1.5 border border-yellow-900/50 rounded-lg text-xs font-semibold text-yellow-400 hover:bg-slate-800 transition">Disability</div></label>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="bg-slate-900 rounded-xl border border-slate-800 shadow-lg p-5">
+                        <h2 class="text-lg font-semibold text-emerald-300 mb-4 flex items-center gap-2 border-b border-slate-800 pb-3"><i class="fa-solid fa-comments-medical"></i> 3. การซักประวัติ (History Taking)</h2>
+                        <div class="space-y-4">
+                            <div class="grid grid-cols-4 gap-2">
+                                <label class="cursor-pointer"><input type="radio" name="visitType" class="check-card sr-only" checked><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">ป่วยทั่วไป</div></label>
+                                <label class="cursor-pointer"><input type="radio" name="visitType" class="check-card sr-only"><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">อุบัติเหตุในงาน</div></label>
+                                <label class="cursor-pointer"><input type="radio" name="visitType" class="check-card sr-only"><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">อุบัติเหตุทั่วไป</div></label>
+                                <label class="cursor-pointer"><input type="radio" name="visitType" class="check-card sr-only"><div class="p-2 border border-red-900/50 text-red-400 rounded-lg text-center text-xs font-semibold hover:bg-red-900/30 transition">ป่วยฉุกเฉิน</div></label>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1">อาการสำคัญ (CC - Chief Complaint)</label>
+                                <input type="text" id="emrCC" placeholder="ระบุอาการ + ระยะเวลา" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:border-emerald-500 focus:outline-none text-sm transition">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1">อาการปัจจุบัน (PI - Present Illness)</label>
+                                <textarea rows="3" id="emrPI" placeholder="รายละเอียดอาการปัจจุบัน..." class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:border-emerald-500 focus:outline-none text-sm resize-none transition"></textarea>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="lg:col-span-6 space-y-6">
+                    <section class="bg-slate-900 rounded-xl border border-slate-800 shadow-lg p-5">
+                        <h2 class="text-lg font-semibold text-emerald-300 mb-4 flex items-center gap-2 border-b border-slate-800 pb-3"><i class="fa-solid fa-heart-pulse"></i> 4. สัญญาณชีพ (Vital Signs)</h2>
+                        
+                        <div class="grid grid-cols-5 gap-3 mb-4">
+                            <div class="bg-slate-800 p-2 rounded-lg border border-slate-700 text-center shadow-inner">
+                                <span class="text-[10px] font-medium text-slate-400 block uppercase">BP (mmHg)</span>
+                                <input type="text" id="vsBP" placeholder="120/80" class="w-full bg-transparent text-center text-sm font-semibold text-emerald-400 outline-none mt-1">
+                            </div>
+                            <div class="bg-slate-800 p-2 rounded-lg border border-slate-700 text-center shadow-inner">
+                                <span class="text-[10px] font-medium text-slate-400 block uppercase">HR (BPM)</span>
+                                <input type="number" id="vsHR" placeholder="80" class="w-full bg-transparent text-center text-sm font-semibold text-emerald-400 outline-none mt-1">
+                            </div>
+                            <div class="bg-slate-800 p-2 rounded-lg border border-slate-700 text-center shadow-inner">
+                                <span class="text-[10px] font-medium text-slate-400 block uppercase">RR (BPM)</span>
+                                <input type="number" id="vsRR" placeholder="20" class="w-full bg-transparent text-center text-sm font-semibold text-emerald-400 outline-none mt-1">
+                            </div>
+                            <div class="bg-slate-800 p-2 rounded-lg border border-slate-700 text-center shadow-inner">
+                                <span class="text-[10px] font-medium text-slate-400 block uppercase">SpO2 (%)</span>
+                                <input type="number" id="vsSpO2" placeholder="98" class="w-full bg-transparent text-center text-sm font-semibold text-emerald-400 outline-none mt-1">
+                            </div>
+                            <div class="bg-slate-800 p-2 rounded-lg border border-slate-700 text-center shadow-inner">
+                                <span class="text-[10px] font-medium text-slate-400 block uppercase">DTX (mg/dL)</span>
+                                <input type="number" id="vsDTX" placeholder="-" class="w-full bg-transparent text-center text-sm font-semibold text-emerald-400 outline-none mt-1">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4 mt-4">
+                            <div class="bg-slate-800 p-3 rounded-lg border border-slate-700 shadow-inner">
+                                <label class="block text-xs font-medium text-slate-400 mb-2">GCS (Glasgow Coma Scale)</label>
+                                <div class="flex gap-2">
+                                    <select id="gcsE" class="w-1/3 bg-slate-900 border border-slate-600 rounded p-1.5 text-xs text-center focus:border-emerald-500 outline-none transition"><option value="E4">E4</option><option value="E3">E3</option><option value="E2">E2</option><option value="E1">E1</option></select>
+                                    <select id="gcsV" class="w-1/3 bg-slate-900 border border-slate-600 rounded p-1.5 text-xs text-center focus:border-emerald-500 outline-none transition"><option value="V5">V5</option><option value="V4">V4</option><option value="V3">V3</option><option value="V2">V2</option><option value="V1">V1</option></select>
+                                    <select id="gcsM" class="w-1/3 bg-slate-900 border border-slate-600 rounded p-1.5 text-xs text-center focus:border-emerald-500 outline-none transition"><option value="M6">M6</option><option value="M5">M5</option><option value="M4">M4</option><option value="M3">M3</option><option value="M2">M2</option><option value="M1">M1</option></select>
+                                </div>
+                            </div>
+                            <div class="bg-slate-800 p-3 rounded-lg border border-slate-700 shadow-inner">
+                                <label class="block text-xs font-medium text-slate-400 mb-2">Pupils (mm & React)</label>
+                                <div class="space-y-2">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs font-bold text-slate-400 w-4">Rt.</span>
+                                        <input type="number" id="pupilR_mm" placeholder="mm" class="w-12 bg-slate-900 border border-slate-600 rounded p-1.5 text-xs text-center focus:border-emerald-500 outline-none transition">
+                                        <select id="pupilR_react" class="flex-1 bg-slate-900 border border-slate-600 rounded p-1.5 text-xs focus:border-emerald-500 outline-none transition">
+                                            <option value="RTL">RTL</option><option value="Sluggish">Sluggish</option><option value="Fixed">Fixed</option>
+                                        </select>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs font-bold text-slate-400 w-4">Lt.</span>
+                                        <input type="number" id="pupilL_mm" placeholder="mm" class="w-12 bg-slate-900 border border-slate-600 rounded p-1.5 text-xs text-center focus:border-emerald-500 outline-none transition">
+                                        <select id="pupilL_react" class="flex-1 bg-slate-900 border border-slate-600 rounded p-1.5 text-xs focus:border-emerald-500 outline-none transition">
+                                            <option value="RTL">RTL</option><option value="Sluggish">Sluggish</option><option value="Fixed">Fixed</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="bg-slate-900 rounded-xl border border-slate-800 shadow-lg p-5">
+                        <h2 class="text-lg font-semibold text-emerald-300 mb-4 flex items-center gap-2 border-b border-slate-800 pb-3"><i class="fa-solid fa-user-doctor"></i> 5. การตรวจรักษาและวินิจฉัย</h2>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1">การตรวจร่างกาย (PE)</label>
+                                <textarea rows="2" id="emrPE" placeholder="ระบุผลการตรวจร่างกาย..." class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:border-emerald-500 focus:outline-none text-sm resize-none transition"></textarea>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-400 mb-1">ระบบร่างกาย (Dx System)</label>
+                                    <select id="emrDxSystem" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:border-emerald-500 focus:outline-none text-sm transition">
+                                        <option value="Respiratory">Respiratory (ระบบหายใจ)</option>
+                                        <option value="Cardiovascular">Cardio (ระบบหัวใจและหลอดเลือด)</option>
+                                        <option value="Gastrointestinal">GI (ระบบทางเดินอาหาร)</option>
+                                        <option value="Neurological">Neuro (ระบบประสาท)</option>
+                                        <option value="Musculoskeletal">MSK (กระดูกและกล้ามเนื้อ)</option>
+                                        <option value="Integumentary">Integumentary (ผิวหนัง)</option>
+                                        <option value="Others">Others (อื่นๆ)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-400 mb-1">การวินิจฉัยโรค (Dx Detail)</label>
+                                    <input type="text" id="emrDxDetail" placeholder="เช่น Acute Pharyngitis" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:border-emerald-500 focus:outline-none text-sm transition">
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-2">แผนการรักษา (Treatment Plan)</label>
+                                <div class="grid grid-cols-4 gap-2">
+                                    <label class="cursor-pointer"><input type="radio" name="plan" value="รับยา - D/C" class="check-card sr-only" checked><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">รับยา - D/C</div></label>
+                                    <label class="cursor-pointer"><input type="radio" name="plan" value="สังเกตอาการ (Observe)" class="check-card sr-only"><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">Observe</div></label>
+                                    <label class="cursor-pointer"><input type="radio" name="plan" value="ตรวจทั่วไป" class="check-card sr-only"><div class="p-2 border border-slate-700 rounded-lg text-center text-xs font-semibold hover:bg-slate-800 transition">ตรวจทั่วไป</div></label>
+                                    <label class="cursor-pointer"><input type="radio" name="plan" value="ส่งต่อ (Refer)" class="check-card sr-only"><div class="p-2 border border-red-900/50 text-red-400 rounded-lg text-center text-xs font-semibold hover:bg-red-900/30 transition">ส่งต่อ (Refer)</div></label>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="lg:col-span-12 mb-6">
+                    <section class="bg-slate-900 rounded-xl border border-slate-800 shadow-lg p-5 flex flex-col md:flex-row gap-6">
+                        <div class="md:w-1/3 border-r border-slate-800 pr-0 md:pr-6">
+                            <h2 class="text-lg font-semibold text-emerald-300 mb-4 flex items-center gap-2"><i class="fa-solid fa-pills"></i> 6. จ่ายยาและหัตถการ</h2>
+                            <div class="space-y-3">
+                                <div>
+                                    <select id="itemType" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm focus:border-emerald-500 focus:outline-none transition" onchange="updateItemList()">
+                                        <option value="med">ยา (Medications)</option>
+                                        <option value="supply">เวชภัณฑ์ (Medical Supplies)</option>
+                                        <option value="procedure">หัตถการ (Procedures)</option>
+                                    </select>
+                                </div>
+                                <div class="relative">
+                                    <select id="itemSelect" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm focus:border-emerald-500 focus:outline-none transition" onchange="updateStockDisplay()"></select>
+                                    <span id="stockBadge" class="absolute right-2 top-2.5 text-[10px] bg-slate-700 px-1.5 py-0.5 rounded font-medium">Stock: --</span>
+                                </div>
+                                <div class="flex gap-3">
+                                    <div class="w-1/2">
+                                        <input type="number" id="itemQty" value="1" min="1" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-center text-sm focus:border-emerald-500 focus:outline-none transition">
+                                    </div>
+                                    <div class="w-1/2">
+                                        <button onclick="addItem()" class="w-full h-full bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold transition shadow-lg shadow-emerald-600/20"><i class="fa-solid fa-plus"></i> เพิ่มรายการ</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="md:w-2/3 flex flex-col">
+                            <h3 class="text-sm font-medium text-slate-400 mb-2">ตะกร้ารายการที่สั่งจ่าย</h3>
+                            <div class="flex-grow overflow-auto border border-slate-800 rounded-lg bg-slate-950/50 h-40">
+                                <table class="w-full text-left text-sm text-slate-300">
+                                    <thead class="bg-slate-800 text-slate-400 sticky top-0">
+                                        <tr>
+                                            <th class="px-4 py-2 font-medium w-20">ประเภท</th>
+                                            <th class="px-4 py-2 font-medium">รายการ</th>
+                                            <th class="px-4 py-2 font-medium text-center w-24">จำนวน</th>
+                                            <th class="px-4 py-2 font-medium text-center w-16">จัดการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="orderList" class="divide-y divide-slate-800/50">
+                                        <tr><td colspan="4" class="px-4 py-8 text-center text-slate-600">ยังไม่มีรายการ</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+                
+                <div class="lg:col-span-12 flex justify-end gap-4 border-t border-slate-800 pt-6">
+                    <button onclick="saveEMRCase()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-3 rounded-lg font-bold shadow-lg shadow-emerald-500/20 transition flex items-center gap-2 text-lg">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> บันทึกเคสการรักษา (Save EMR)
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-patients" class="view-section space-y-6">
+            <section class="bg-slate-900 rounded-xl border border-slate-800 shadow-lg p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-bold text-emerald-300 flex items-center gap-2"><i class="fa-solid fa-users-viewfinder"></i> ฐานข้อมูลทะเบียนผู้ป่วย / พนักงาน</h2>
+                    <div class="flex gap-2">
+                        <select id="filterCompany" class="bg-slate-800 border border-slate-700 rounded-lg p-2 text-sm text-slate-300 focus:border-emerald-500 outline-none transition" onchange="renderPatientTable()">
+                            <option value="ALL">ทุกบริษัท / สังกัด</option>
+                            <option value="Company A">Company A</option>
+                            <option value="Company B">Company B</option>
+                            <option value="Company C">Company C</option>
+                        </select>
+                        <div class="flex w-64">
+                            <input type="text" id="dbSearchInput" placeholder="ค้นหาชื่อ, HN..." class="w-full bg-slate-800 border border-slate-700 rounded-l-lg p-2 text-sm focus:border-emerald-500 focus:outline-none transition" onkeyup="renderPatientTable()">
+                            <button class="bg-slate-700 border border-slate-700 border-l-0 rounded-r-lg px-3 text-slate-300"><i class="fa-solid fa-magnifying-glass"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto rounded-lg border border-slate-800">
+                    <table class="w-full text-left text-sm text-slate-300">
+                        <thead class="bg-slate-800 text-slate-400">
+                            <tr>
+                                <th class="px-4 py-3 font-medium">HN Number</th>
+                                <th class="px-4 py-3 font-medium">ชื่อ-นามสกุล</th>
+                                <th class="px-4 py-3 font-medium">เพศ / อายุ</th>
+                                <th class="px-4 py-3 font-medium">บริษัท (สังกัด)</th>
+                                <th class="px-4 py-3 font-medium">โรคประจำตัว</th>
+                                <th class="px-4 py-3 font-medium text-center">จัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="patientTableBody" class="divide-y divide-slate-800/50 bg-slate-900/50"></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <div id="view-inventory" class="view-section space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Form -->
+                <div class="bg-slate-900 rounded-xl border border-slate-800 shadow-lg p-5">
+                    <h2 class="text-lg font-semibold text-purple-400 mb-4 border-b border-slate-800 pb-3"><i class="fa-solid fa-box-open"></i> เพิ่ม/แก้ไข รายการสต๊อก</h2>
+                    <form id="invForm" onsubmit="saveInventoryItem(event)" class="space-y-4">
+                        <input type="hidden" id="invMode" value="add">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">รหัส (Item ID)</label>
+                            <input type="text" id="invId" required placeholder="เช่น M001, S001" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm focus:border-purple-500 transition">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">ชื่อรายการ (Name)</label>
+                            <input type="text" id="invName" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm focus:border-purple-500 transition">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">ประเภท</label>
+                            <select id="invType" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm focus:border-purple-500 transition">
+                                <option value="med">ยา (Medication)</option>
+                                <option value="supply">เวชภัณฑ์ (Supply)</option>
+                                <option value="procedure">หัตถการ (Procedure)</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div class="col-span-1">
+                                <label class="block text-xs font-medium text-slate-400 mb-1">สต๊อก</label>
+                                <input type="number" id="invStock" min="0" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm focus:border-purple-500 transition">
+                            </div>
+                            <div class="col-span-1">
+                                <label class="block text-xs font-medium text-slate-400 mb-1">หน่วย (Unit)</label>
+                                <input type="text" id="invUnit" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm focus:border-purple-500 transition">
+                            </div>
+                            <div class="col-span-1">
+                                <label class="block text-xs font-medium text-slate-400 mb-1">EXP</label>
+                                <input type="date" id="invExpiry" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm focus:border-purple-500 transition text-slate-300">
+                            </div>
+                        </div>
+                        <div class="flex gap-2 pt-2">
+                            <button type="button" onclick="clearInvForm()" class="w-1/3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-sm font-medium transition">เคลียร์</button>
+                            <button type="submit" class="w-2/3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm font-medium transition shadow-lg shadow-purple-600/20">บันทึกรายการ</button>
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Table -->
+                <div class="lg:col-span-2 bg-slate-900 rounded-xl border border-slate-800 shadow-lg p-5 flex flex-col">
+                    <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+                        <h2 class="text-lg font-semibold text-slate-300"><i class="fa-solid fa-list"></i> รายการคลังทั้งหมด</h2>
+                        <div class="flex gap-2">
+                            <select id="filterInvType" class="bg-slate-800 border border-slate-600 rounded-lg p-1.5 text-sm text-slate-300 focus:border-purple-500 outline-none transition" onchange="renderInventoryTable()">
+                                <option value="ALL">ทุกประเภท</option>
+                                <option value="med">ยา</option>
+                                <option value="supply">เวชภัณฑ์</option>
+                                <option value="procedure">หัตถการ</option>
+                            </select>
+                            <input type="text" id="searchInv" placeholder="ค้นหา..." class="bg-slate-800 border border-slate-600 rounded-lg p-1.5 text-sm w-32 focus:border-purple-500 outline-none transition" onkeyup="renderInventoryTable()">
+                            <button onclick="exportInventoryToExcel()" class="bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">
+                                <i class="fa-solid fa-file-excel"></i> Export
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex-grow overflow-auto border border-slate-800 rounded-lg">
+                        <table id="inventoryTableExport" class="w-full text-left text-sm text-slate-300">
+                            <thead class="bg-slate-800 text-slate-400 sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-3 font-medium">ID</th>
+                                    <th class="px-4 py-3 font-medium">ชื่อรายการ</th>
+                                    <th class="px-4 py-3 font-medium text-center">ประเภท</th>
+                                    <th class="px-4 py-3 font-medium text-right">สต๊อก</th>
+                                    <th class="px-4 py-3 font-medium text-center">หน่วย</th>
+                                    <th class="px-4 py-3 font-medium text-center">วันหมดอายุ</th>
+                                    <th class="px-4 py-3 font-medium text-center">จัดการ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventoryTableBody" class="divide-y divide-slate-800/50 bg-slate-900/50"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-reports" class="view-section space-y-6">
+            <div class="flex justify-between items-center bg-slate-900 rounded-xl border border-slate-800 shadow-lg p-4">
+                <div class="flex gap-4 items-center">
+                    <select id="reportFilterType" onchange="updateReportFilterUI()" class="bg-slate-800 border border-slate-700 rounded-lg p-2 text-sm text-slate-300 focus:border-emerald-500 outline-none transition">
+                        <option value="daily">รายวัน (Daily)</option>
+                        <option value="monthly" selected>รายเดือน (Monthly)</option>
+                        <option value="yearly">รายปี (Yearly)</option>
+                    </select>
+                    <input type="date" id="reportFilterDate" class="hidden bg-slate-800 border border-slate-700 rounded-lg p-2 text-sm text-slate-300 outline-none transition" onchange="renderReports()">
+                    <input type="month" id="reportFilterMonth" class="bg-slate-800 border border-slate-700 rounded-lg p-2 text-sm text-slate-300 outline-none transition" value="2026-05" onchange="renderReports()">
+                    <select id="reportFilterYear" class="hidden bg-slate-800 border border-slate-700 rounded-lg p-2 text-sm text-slate-300 outline-none transition" onchange="renderReports()">
+                        <option value="2026">2026</option>
+                        <option value="2025">2025</option>
+                    </select>
+                </div>
+                <div class="flex gap-2">
+                    <select id="reportLang" onchange="translateReports()" class="bg-slate-800 border border-slate-700 text-slate-300 rounded-lg px-3 py-2 text-sm outline-none">
+                        <option value="th">🇹🇭 ไทย</option>
+                        <option value="en">🇬🇧 English</option>
+                        <option value="cn">🇨🇳 中文</option>
+                    </select>
+                    <button onclick="printA4()" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"><i class="fa-solid fa-print"></i> Print A4</button>
+                    <button onclick="exportToExcel()" class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"><i class="fa-solid fa-file-excel"></i> Export Excel</button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="bg-slate-900 rounded-xl border border-slate-800 p-5 border-l-4 border-l-emerald-500 shadow-lg"><p id="lblTotal" class="text-xs font-medium text-slate-400 mb-1">จำนวนเคสทั้งหมด (ครั้ง)</p><h3 id="statTotal" class="text-3xl font-bold text-white">0</h3></div>
+                <div class="bg-slate-900 rounded-xl border border-slate-800 p-5 border-l-4 border-l-blue-500 shadow-lg"><p id="lblWork" class="text-xs font-medium text-slate-400 mb-1">อุบัติเหตุในงาน</p><h3 id="statWorkAcc" class="text-3xl font-bold text-white">0</h3></div>
+                <div class="bg-slate-900 rounded-xl border border-slate-800 p-5 border-l-4 border-l-yellow-500 shadow-lg"><p id="lblGen" class="text-xs font-medium text-slate-400 mb-1">ป่วย/อุบัติเหตุทั่วไป</p><h3 id="statGen" class="text-3xl font-bold text-white">0</h3></div>
+                <div class="bg-slate-900 rounded-xl border border-slate-800 p-5 border-l-4 border-l-red-500 shadow-lg"><p id="lblRefer" class="text-xs font-medium text-slate-400 mb-1">ฉุกเฉิน / รีเฟอร์ (Refer)</p><h3 id="statRefer" class="text-3xl font-bold text-white">0</h3></div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 shadow-lg flex flex-col items-center">
+                    <h3 id="lblCompChart" class="text-xs font-medium text-slate-300 mb-2 w-full text-center">สถิติแยกตามบริษัท</h3>
+                    <div class="relative w-full h-40"><canvas id="companyChart"></canvas></div>
+                </div>
+                <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 shadow-lg flex flex-col items-center">
+                    <h3 id="lblDxChart" class="text-xs font-medium text-slate-300 mb-2 w-full text-center">สถิติแยกระบบร่างกาย</h3>
+                    <div class="relative w-full h-40"><canvas id="dxChart"></canvas></div>
+                </div>
+                <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 shadow-lg flex flex-col items-center">
+                    <h3 id="lblPlanChart" class="text-xs font-medium text-slate-300 mb-2 w-full text-center">สถิติแผนการรักษา</h3>
+                    <div class="relative w-full h-40"><canvas id="planChart"></canvas></div>
+                </div>
+                <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 shadow-lg flex flex-col items-center">
+                    <h3 id="lblGenChart" class="text-xs font-medium text-slate-300 mb-2 w-full text-center">สถิติแยกตามเพศ</h3>
+                    <div class="relative w-full h-40"><canvas id="genderChart"></canvas></div>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 rounded-xl border border-slate-800 p-5 flex flex-col shadow-lg mt-6">
+                <h3 class="text-md font-medium text-slate-300 mb-4">รายละเอียดบันทึกการรักษา (Detailed Logs)</h3>
+                <div class="flex-grow overflow-auto">
+                    <table id="reportTable" class="w-full text-left text-xs text-slate-400 whitespace-nowrap">
+                        <thead class="bg-slate-800 text-slate-300 sticky top-0">
+                            <tr>
+                                <th class="px-3 py-2 font-medium">วันที่/เวลา</th><th class="px-3 py-2 font-medium">HN</th><th class="px-3 py-2 font-medium">ชื่อ-สกุล</th><th class="px-3 py-2 font-medium">เพศ</th>
+                                <th class="px-3 py-2 font-medium">บริษัท</th><th class="px-3 py-2 font-medium">ประเภท</th><th class="px-3 py-2 font-medium">ระบบ</th>
+                                <th class="px-3 py-2 font-medium">วินิจฉัย (Dx)</th><th class="px-3 py-2 font-medium">แผนการรักษา</th><th class="px-3 py-2 font-medium">รายการจ่าย</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reportTableBody" class="divide-y divide-slate-800/50 bg-slate-900/50"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="printArea" class="hidden">
+        <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #000; padding-bottom: 10px;">
+            <h1 id="printTitle" style="font-size: 24px; font-weight: bold; margin: 0;">สรุปรายงานสถิติคลินิก (Clinic Statistical Report)</h1>
+            <p id="printSubtitle" style="font-size: 14px; margin-top: 5px; color: #555;">ประจำวันที่: <span id="printDateRange"></span></p>
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
+            <div style="width: 23%; text-align: center; padding: 15px; border: 1px solid #ccc; border-radius: 8px;">
+                <p id="pLblTotal" style="font-size: 12px; color: #666; margin: 0;">จำนวนเคสทั้งหมด</p>
+                <h3 id="pStatTotal" style="font-size: 24px; margin: 5px 0 0 0;">0</h3>
+            </div>
+            <div style="width: 23%; text-align: center; padding: 15px; border: 1px solid #ccc; border-radius: 8px;">
+                <p id="pLblWork" style="font-size: 12px; color: #666; margin: 0;">อุบัติเหตุในงาน</p>
+                <h3 id="pStatWork" style="font-size: 24px; margin: 5px 0 0 0;">0</h3>
+            </div>
+            <div style="width: 23%; text-align: center; padding: 15px; border: 1px solid #ccc; border-radius: 8px;">
+                <p id="pLblGen" style="font-size: 12px; color: #666; margin: 0;">ทั่วไป</p>
+                <h3 id="pStatGen" style="font-size: 24px; margin: 5px 0 0 0;">0</h3>
+            </div>
+            <div style="width: 23%; text-align: center; padding: 15px; border: 1px solid #ccc; border-radius: 8px;">
+                <p id="pLblRefer" style="font-size: 12px; color: #666; margin: 0;">ฉุกเฉิน/ส่งต่อ</p>
+                <h3 id="pStatRefer" style="font-size: 24px; margin: 5px 0 0 0;">0</h3>
+            </div>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between;">
+            <div style="width: 48%; margin-bottom: 20px; border: 1px solid #eee; padding: 10px; border-radius: 8px; text-align: center;">
+                <h4 id="pLblComp" style="font-size: 14px; margin: 0 0 10px 0;">สถิติแยกตามบริษัท</h4>
+                <img id="printImgComp" style="max-width: 100%; height: auto; max-height: 250px;">
+            </div>
+            <div style="width: 48%; margin-bottom: 20px; border: 1px solid #eee; padding: 10px; border-radius: 8px; text-align: center;">
+                <h4 id="pLblDx" style="font-size: 14px; margin: 0 0 10px 0;">สถิติแยกระบบร่างกาย</h4>
+                <img id="printImgDx" style="max-width: 100%; height: auto; max-height: 250px;">
+            </div>
+            <div style="width: 48%; margin-bottom: 20px; border: 1px solid #eee; padding: 10px; border-radius: 8px; text-align: center;">
+                <h4 id="pLblPlan" style="font-size: 14px; margin: 0 0 10px 0;">สถิติแผนการรักษา</h4>
+                <img id="printImgPlan" style="max-width: 100%; height: auto; max-height: 250px;">
+            </div>
+            <div style="width: 48%; margin-bottom: 20px; border: 1px solid #eee; padding: 10px; border-radius: 8px; text-align: center;">
+                <h4 id="pLblGender" style="font-size: 14px; margin: 0 0 10px 0;">สถิติแยกตามเพศ</h4>
+                <img id="printImgGender" style="max-width: 100%; height: auto; max-height: 250px;">
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal สำหรับดูรายละเอียดประวัติย้อนหลัง -->
+    <div id="historyModal" class="fixed inset-0 bg-black/80 z-[100] hidden flex items-center justify-center backdrop-blur-sm transition-opacity no-print">
+        <div class="bg-slate-800 border border-emerald-500/30 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col mx-4 overflow-hidden">
+            <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900">
+                <h3 class="text-lg font-bold text-emerald-400 flex items-center gap-2"><i class="fa-solid fa-file-medical"></i> รายละเอียดประวัติการรักษา</h3>
+                <button onclick="closeHistoryModal()" class="text-slate-400 hover:text-red-400 transition"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <div class="p-6 overflow-y-auto flex-1 space-y-4" id="historyModalContent">
+                <!-- Content injected via JS -->
+            </div>
+            <div class="p-4 border-t border-slate-700 bg-slate-900 text-right">
+                <button onclick="closeHistoryModal()" class="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2 rounded-lg transition font-medium">ปิดหน้าต่าง</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. FIREBASE CONFIGURATION (วาง Config ของคุณที่นี่)
+        // ==========================================
+const firebaseConfig = {
+  apiKey: "AIzaSyDEK16C7R1-v2CdI712muKDDa5UU4VQ_Aw",
+  authDomain: "medical-recoder.firebaseapp.com",
+  databaseURL: "https://medical-recoder-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "medical-recoder",
+  storageBucket: "medical-recoder.firebasestorage.app",
+  messagingSenderId: "857710186741",
+  appId: "1:857710186741:web:5321f5081d0461664b35bc",
+  measurementId: "G-B07XPMXNSK"
+};
+
+        // Initialize Firebase variables
+        let db = null;
+        let isFirebaseActive = false;
+
+        try {
+            if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+                isFirebaseActive = true;
+                console.log("Firebase initialized successfully.");
+            } else {
+                console.warn("Firebase not configured. Running in Local Memory (Offline) Mode.");
+            }
+        } catch (error) {
+            console.error("Firebase init error:", error);
+        }
+
+        // ==========================================
+        // 2. DATA STATE & MOCK DATA
+        // ==========================================
+        let inventory = [
+            { id: 'M001', name: 'Paracetamol 500mg', type: 'med', stock: 500, unit: 'tab', expiry: '2028-12-31' },
+            { id: 'M002', name: 'Amoxicillin 500mg', type: 'med', stock: 200, unit: 'cap', expiry: '2027-06-15' },
+            { id: 'M003', name: 'Ibuprofen 400mg', type: 'med', stock: 150, unit: 'tab', expiry: '2026-06-10' },
+            { id: 'S001', name: 'Gauze 3x3 (Sterile)', type: 'supply', stock: 100, unit: 'pack', expiry: '2030-01-01' },
+            { id: 'S002', name: 'NSS 100ml', type: 'supply', stock: 50, unit: 'btl', expiry: '2027-10-20' },
+            { id: 'P001', name: 'ทำแผล (Wound Dressing)', type: 'procedure', stock: 9999, unit: 'ครั้ง', expiry: '' }
+        ];
+
+        let patientsDB = [
+            { hn: 'HN001', name: 'สมชาย ใจดี', gender: 'M', age: 35, nationality: 'TH', company: 'Company A', med: 'ความดันโลหิตสูง', allergy: '-' },
+            { hn: 'HN002', name: 'สมศรี มีสุข', gender: 'F', age: 28, nationality: 'TH', company: 'Company B', med: '-', allergy: 'Penicillin' },
+            { hn: 'HN003', name: 'วิชัย เก่งการ', gender: 'M', age: 42, nationality: 'TH', company: 'Company A', med: 'เบาหวาน', allergy: '-' }
+        ];
+
+        let visitLogs = [
+            { timestamp: '2026-05-17T10:30:00', hn: 'HN001', name: 'สมชาย ใจดี', gender: 'M', company: 'Company A', visitType: 'อุบัติเหตุในงาน', dxSystem: 'Integumentary', dx: 'Laceration wound', plan: 'ตรวจทั่วไป', items: 'ทำแผล (Wound Dressing) (1), Paracetamol 500mg (10)' },
+            { timestamp: '2026-05-16T14:20:00', hn: 'HN003', name: 'วิชัย เก่งการ', gender: 'M', company: 'Company A', visitType: 'ป่วยทั่วไป', dxSystem: 'Others', dx: 'DM Follow up', plan: 'รับยา - D/C', items: '-' }
+        ];
+
+        let orderItems = [];
+        let charts = {};
+
+        window.onload = () => {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('reportFilterDate').value = today;
+            
+            if (isFirebaseActive) {
+                document.getElementById('dbStatus').innerText = "ระบบจัดการคลินิกอัจฉริยะ (🟢 Online: Firebase Connected)";
+                document.getElementById('dbStatus').classList.replace('text-slate-400', 'text-emerald-400');
+                initFirebaseListeners();
+            } else {
+                // Initialize with Mock Data
+                updateItemList();
+                renderPatientTable();
+                renderInventoryTable();
+                initCharts();
+                renderReports();
+            }
+        };
+
+        function initFirebaseListeners() {
+            // Listen to Inventory
+            db.collection("inventory").onSnapshot((snapshot) => {
+                if(snapshot.empty) seedFirebase('inventory', inventory); // Auto-seed if empty
+                inventory = [];
+                snapshot.forEach(doc => inventory.push(doc.data()));
+                updateItemList();
+                renderInventoryTable();
+            });
+
+            // Listen to Patients
+            db.collection("patients").onSnapshot((snapshot) => {
+                if(snapshot.empty) seedFirebase('patients', patientsDB);
+                patientsDB = [];
+                snapshot.forEach(doc => patientsDB.push(doc.data()));
+                renderPatientTable();
+            });
+
+            // Listen to Visit Logs
+            db.collection("visits").orderBy("timestamp", "desc").onSnapshot((snapshot) => {
+                if(snapshot.empty) seedFirebase('visits', visitLogs);
+                visitLogs = [];
+                snapshot.forEach(doc => visitLogs.push(doc.data()));
+                if(Object.keys(charts).length === 0) initCharts();
+                renderReports();
+            });
+        }
+
+        // Helper to seed data automatically on first run
+        async function seedFirebase(collectionName, dataArray) {
+            console.log(`Seeding ${collectionName} to Firebase...`);
+            for (const item of dataArray) {
+                const docId = collectionName === 'patients' ? item.hn : (collectionName === 'inventory' ? item.id : null);
+                if (docId) {
+                    await db.collection(collectionName).doc(docId).set(item);
+                } else {
+                    await db.collection(collectionName).add(item);
+                }
+            }
+        }
+
+        function switchView(viewId) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(`view-${viewId}`).classList.add('active');
+            document.getElementById(`nav-${viewId}`).classList.add('active');
+            if(viewId === 'reports') renderReports();
+        }
+
+        function quickSearchPatient() {
+            const q = document.getElementById('quickSearchInput').value.toLowerCase();
+            if(!q) return;
+            const p = patientsDB.find(x => x.hn.toLowerCase() === q || x.name.toLowerCase().includes(q));
+            
+            if(p) {
+                document.getElementById('patHn').value = p.hn; document.getElementById('patName').value = p.name;
+                document.getElementById('patGender').value = p.gender; document.getElementById('patAge').value = p.age;
+                document.getElementById('patNat').value = p.nationality; document.getElementById('patCompany').value = p.company;
+                document.getElementById('patMed').value = p.med; document.getElementById('patAllergy').value = p.allergy;
+                
+                // Show History
+                renderPatientHistory(p.hn);
+            } else {
+                alert('ไม่พบประวัติผู้ป่วยในระบบ');
+                document.getElementById('pastHistorySection').classList.add('hidden');
+            }
+        }
+
+        function renderPatientHistory(hn) {
+            const historyBody = document.getElementById('pastHistoryBody');
+            const historySec = document.getElementById('pastHistorySection');
+            historyBody.innerHTML = '';
+            
+            const pLogs = visitLogs.filter(l => l.hn === hn).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+            
+            if(pLogs.length === 0) {
+                historyBody.innerHTML = `<tr><td colspan="6" class="px-3 py-4 text-center text-slate-500">ไม่มีประวัติการรักษาเก่า</td></tr>`;
+            } else {
+                pLogs.forEach(log => {
+                    const d = new Date(log.timestamp);
+                    const dt = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+                    historyBody.innerHTML += `
+                        <tr class="hover:bg-slate-700/50 transition cursor-pointer" onclick="viewHistoryDetail('${log.timestamp}')">
+                            <td class="px-3 py-2 text-slate-400">${dt}</td>
+                            <td class="px-3 py-2 text-blue-400">${log.visitType}</td>
+                            <td class="px-3 py-2 text-amber-400 truncate max-w-[120px]">${log.dx}</td>
+                            <td class="px-3 py-2 text-slate-300">${log.plan}</td>
+                            <td class="px-3 py-2 text-slate-400 truncate max-w-[120px]" title="${log.items}">${log.items}</td>
+                            <td class="px-3 py-2 text-center text-emerald-400"><i class="fa-solid fa-eye hover:scale-110 transition"></i></td>
+                        </tr>
+                    `;
+                });
+            }
+            historySec.classList.remove('hidden');
+        }
+
+        // ฟังก์ชันเปิดดูรายละเอียดเคสย้อนหลัง
+        function viewHistoryDetail(timestamp) {
+            const log = visitLogs.find(l => l.timestamp === timestamp);
+            if(!log) return;
+
+            const d = new Date(log.timestamp);
+            const dt = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+
+            const vsInfo = log.vs ? `
+                <div class="grid grid-cols-5 gap-2 mt-2">
+                    <div class="bg-slate-900/50 p-2 rounded border border-slate-700 text-center shadow-inner"><span class="text-[10px] text-slate-400 block uppercase">BP</span><span class="text-emerald-300 font-medium">${log.vs.bp}</span></div>
+                    <div class="bg-slate-900/50 p-2 rounded border border-slate-700 text-center shadow-inner"><span class="text-[10px] text-slate-400 block uppercase">HR</span><span class="text-emerald-300 font-medium">${log.vs.hr}</span></div>
+                    <div class="bg-slate-900/50 p-2 rounded border border-slate-700 text-center shadow-inner"><span class="text-[10px] text-slate-400 block uppercase">RR</span><span class="text-emerald-300 font-medium">${log.vs.rr}</span></div>
+                    <div class="bg-slate-900/50 p-2 rounded border border-slate-700 text-center shadow-inner"><span class="text-[10px] text-slate-400 block uppercase">SpO2</span><span class="text-emerald-300 font-medium">${log.vs.spo2}%</span></div>
+                    <div class="bg-slate-900/50 p-2 rounded border border-slate-700 text-center shadow-inner"><span class="text-[10px] text-slate-400 block uppercase">DTX</span><span class="text-emerald-300 font-medium">${log.vs.dtx}</span></div>
+                </div>
+                <div class="mt-3 text-slate-300 text-xs flex justify-between bg-slate-900/50 p-2 rounded border border-slate-700">
+                    <span><strong>GCS:</strong> ${log.vs.gcsE} ${log.vs.gcsV} ${log.vs.gcsM}</span>
+                    <span><strong>Pupils:</strong> Rt. ${log.vs.pupilR} | Lt. ${log.vs.pupilL}</span>
+                </div>
+            ` : '<p class="text-slate-500 mt-2 text-xs italic">- ไม่มีข้อมูลสัญญาณชีพแบบละเอียดในระบบเก่า -</p>';
+
+            document.getElementById('historyModalContent').innerHTML = `
+                <div class="flex justify-between items-start border-b border-slate-700 pb-3 mb-4">
+                    <div>
+                        <p class="text-slate-400 text-xs mb-1">วันที่/เวลาเข้ารับบริการ</p>
+                        <p class="text-white font-medium text-lg">${dt}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-slate-400 text-xs mb-1">ประเภท</p>
+                        <span class="bg-blue-900/50 text-blue-400 border border-blue-500/30 px-2 py-1 rounded text-xs font-medium">${log.visitType}</span>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <div>
+                        <h4 class="text-emerald-400 font-semibold mb-2 flex items-center gap-2"><i class="fa-solid fa-comments-medical"></i> อาการสำคัญ (CC & PI)</h4>
+                        <div class="text-slate-300 bg-slate-900/50 p-3 rounded border border-slate-700 text-sm space-y-2">
+                            <p><strong class="text-slate-400">CC:</strong> ${log.cc || '-'}</p>
+                            <p><strong class="text-slate-400">PI:</strong> ${log.pi || '-'}</p>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="text-emerald-400 font-semibold mb-2 flex items-center gap-2"><i class="fa-solid fa-heart-pulse"></i> สัญญาณชีพ (Vital Signs)</h4>
+                        ${vsInfo}
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <h4 class="text-emerald-400 font-semibold mb-2 flex items-center gap-2"><i class="fa-solid fa-user-doctor"></i> การตรวจร่างกาย (PE)</h4>
+                            <div class="text-slate-300 bg-slate-900/50 p-3 rounded border border-slate-700 text-sm min-h-[60px]">
+                                ${log.pe || '-'}
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="text-emerald-400 font-semibold mb-2 flex items-center gap-2"><i class="fa-solid fa-stethoscope"></i> การวินิจฉัย (Dx)</h4>
+                            <div class="text-slate-300 bg-slate-900/50 p-3 rounded border border-slate-700 text-sm min-h-[60px]">
+                                <span class="text-purple-400 font-medium">[${log.dxSystem}]</span><br>${log.dx}
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="text-emerald-400 font-semibold mb-2 flex items-center gap-2"><i class="fa-solid fa-pills"></i> แผนการรักษาและรายการจ่าย</h4>
+                        <div class="text-slate-300 bg-slate-900/50 p-3 rounded border border-slate-700 text-sm space-y-2">
+                            <p><strong class="text-slate-400">Treatment Plan:</strong> <span class="${log.plan.includes('Refer') ? 'text-red-400' : 'text-blue-400'} font-medium">${log.plan}</span></p>
+                            <p><strong class="text-slate-400">Items:</strong> ${log.items}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('historyModal').classList.remove('hidden');
+        }
+
+        function closeHistoryModal() {
+            document.getElementById('historyModal').classList.add('hidden');
+        }
+
+        function handleLifeThreat(type) {
+            const noneCb = document.getElementById('ltNone');
+            const items = document.querySelectorAll('.lt-item');
+            if (type === 'none' && noneCb.checked) {
+                items.forEach(cb => cb.checked = false);
+            } else if (type === 'item') {
+                let hasItem = false;
+                items.forEach(cb => { if(cb.checked) hasItem = true; });
+                if(hasItem) noneCb.checked = false;
+                else noneCb.checked = true;
+            }
+        }
+
+        function updateItemList() {
+            const type = document.getElementById('itemType').value;
+            const sel = document.getElementById('itemSelect');
+            sel.innerHTML = '';
+            inventory.filter(i => i.type === type).forEach(i => {
+                sel.innerHTML += `<option value="${i.id}">${i.name}</option>`;
+            });
+            updateStockDisplay();
+        }
+
+        function updateStockDisplay() {
+            const id = document.getElementById('itemSelect').value;
+            const badge = document.getElementById('stockBadge');
+            const item = inventory.find(i => i.id === id);
+            if(!item) return badge.innerText = "Stock: --";
+            if(item.type === 'procedure') {
+                badge.innerText = "Stock: ∞"; badge.className = "absolute right-2 top-2.5 text-[10px] bg-slate-700 px-1.5 py-0.5 rounded text-slate-300 font-medium";
+            } else {
+                badge.innerText = `Stock: ${item.stock}`;
+                badge.className = `absolute right-2 top-2.5 text-[10px] px-1.5 py-0.5 rounded font-bold ${item.stock < 50 ? 'bg-red-500/20 text-red-400' : 'bg-slate-700 text-emerald-400'}`;
+            }
+        }
+
+        function addItem() {
+            const id = document.getElementById('itemSelect').value;
+            const qty = parseInt(document.getElementById('itemQty').value);
+            const item = inventory.find(i => i.id === id);
+            
+            if(!item || qty < 1) return;
+            if(item.type !== 'procedure' && qty > item.stock) return alert(`สต๊อกไม่เพียงพอ! (คงเหลือ: ${item.stock})`);
+
+            const exist = orderItems.find(i => i.id === id);
+            if(exist) exist.qty += qty;
+            else orderItems.push({ id, name: item.name, type: item.type, qty, unit: item.unit });
+
+            // Update local memory stock (Firebase will update on save)
+            if(item.type !== 'procedure') item.stock -= qty;
+            
+            document.getElementById('itemQty').value = 1;
+            renderOrderList(); updateStockDisplay(); renderInventoryTable();
+        }
+
+        function removeOrderItem(id) {
+            const idx = orderItems.findIndex(i => i.id === id);
+            if(idx > -1) {
+                const oItem = orderItems[idx];
+                const invItem = inventory.find(i => i.id === id);
+                if(invItem && invItem.type !== 'procedure') invItem.stock += oItem.qty; // Restore local stock
+                orderItems.splice(idx, 1);
+                renderOrderList(); updateStockDisplay(); renderInventoryTable();
+            }
+        }
+
+        function renderOrderList() {
+            const tbody = document.getElementById('orderList');
+            tbody.innerHTML = '';
+            if(orderItems.length === 0) return tbody.innerHTML = `<tr><td colspan="4" class="px-4 py-8 text-center text-slate-600">ยังไม่มีรายการ</td></tr>`;
+            
+            orderItems.forEach(item => {
+                let badge = item.type === 'med' ? '<span class="text-blue-400">ยา</span>' : item.type === 'supply' ? '<span class="text-amber-400">เวชภัณฑ์</span>' : '<span class="text-purple-400">หัตถการ</span>';
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-800/50 transition">
+                        <td class="px-4 py-2">${badge}</td>
+                        <td class="px-4 py-2 text-slate-200">${item.name}</td>
+                        <td class="px-4 py-2 text-center text-emerald-400 font-medium">${item.qty} ${item.unit}</td>
+                        <td class="px-4 py-2 text-center">
+                            <button onclick="removeOrderItem('${item.id}')" class="text-red-500 hover:text-red-400"><i class="fa-solid fa-trash-can"></i></button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        function clearEMRForm() {
+            ['patHn','patName','patGender','patAge','patNat','patCompany','patMed','patAllergy',
+             'emrCC','emrPI','emrPE','emrDxDetail','vsBP','vsHR','vsRR','vsSpO2','vsDTX',
+             'pupilR_mm','pupilL_mm'].forEach(id => {
+                const el = document.getElementById(id); if(el) el.value = '';
+            });
+            ['gcsE','gcsV','gcsM','pupilR_react','pupilL_react'].forEach(id => {
+                const el = document.getElementById(id); if(el) el.selectedIndex = 0;
+            });
+
+            // Restore cart items to local stock if clearing without saving
+            orderItems.forEach(item => {
+                const itemObj = inventory.find(i => i.id === item.id);
+                if(itemObj && itemObj.type !== 'procedure') itemObj.stock += item.qty;
+            });
+            orderItems = [];
+            renderOrderList(); updateStockDisplay(); renderInventoryTable();
+            document.getElementById('ltNone').checked = true; handleLifeThreat('none');
+            document.getElementById('pastHistorySection').classList.add('hidden');
+        }
+
+        async function saveEMRCase() {
+            let hn = document.getElementById('patHn').value.trim();
+            const name = document.getElementById('patName').value.trim();
+            if(!name) return alert('กรุณาระบุชื่อผู้ป่วย');
+            if(!hn) { hn = 'HN' + Math.floor(Math.random()*10000); document.getElementById('patHn').value = hn; }
+
+            // Construct Patient Object (Update if new or changed)
+            const patientObj = {
+                hn: hn, name: name, 
+                gender: document.getElementById('patGender').value || '-',
+                age: parseInt(document.getElementById('patAge').value) || 0,
+                nationality: document.getElementById('patNat').value || 'TH',
+                company: document.getElementById('patCompany').value || '-',
+                med: document.getElementById('patMed').value || '-',
+                allergy: document.getElementById('patAllergy').value || '-'
+            };
+
+            // Gather Visit Data
+            const dxSystem = document.getElementById('emrDxSystem').value || '-';
+            const dxDetail = document.getElementById('emrDxDetail').value || '-';
+            let visitType = 'ป่วยทั่วไป'; document.getElementsByName('visitType').forEach(r => { if(r.checked) visitType = r.nextElementSibling.innerText.trim(); });
+            let plan = 'รับยา - D/C'; document.getElementsByName('plan').forEach(r => { if(r.checked) plan = r.value; });
+            const itemsString = orderItems.length > 0 ? orderItems.map(i => `${i.name} (${i.qty})`).join(', ') : '-';
+
+            // เก็บรายละเอียดเพิ่มเติมสำหรับแสดงผลย้อนหลัง
+            const cc = document.getElementById('emrCC').value || '-';
+            const pi = document.getElementById('emrPI').value || '-';
+            const pe = document.getElementById('emrPE').value || '-';
+            const vs = {
+                bp: document.getElementById('vsBP').value || '-', hr: document.getElementById('vsHR').value || '-',
+                rr: document.getElementById('vsRR').value || '-', spo2: document.getElementById('vsSpO2').value || '-', dtx: document.getElementById('vsDTX').value || '-',
+                gcsE: document.getElementById('gcsE').value, gcsV: document.getElementById('gcsV').value, gcsM: document.getElementById('gcsM').value,
+                pupilR: document.getElementById('pupilR_mm').value + 'mm ' + document.getElementById('pupilR_react').value,
+                pupilL: document.getElementById('pupilL_mm').value + 'mm ' + document.getElementById('pupilL_react').value
+            };
+
+            const newCase = {
+                timestamp: new Date().toISOString(),
+                hn: patientObj.hn, name: patientObj.name, gender: patientObj.gender, company: patientObj.company, 
+                visitType, dxSystem, dx: dxDetail, plan, items: itemsString,
+                cc: cc, pi: pi, pe: pe, vs: vs
+            };
+
+            // Database Operations
+            try {
+                if (isFirebaseActive) {
+                    // 1. Save/Update Patient
+                    await db.collection("patients").doc(patientObj.hn).set(patientObj, { merge: true });
+                    
+                    // 2. Add Visit Log
+                    await db.collection("visits").add(newCase);
+                    
+                    // 3. Deduct Inventory Stock in Firebase
+                    for (const item of orderItems) {
+                        if (item.type !== 'procedure') {
+                            const invRef = db.collection("inventory").doc(item.id);
+                            // Using standard read/write for simplicity. Note: production usually uses Transactions or increment.
+                            const docSnap = await invRef.get();
+                            if(docSnap.exists) {
+                                const currentStock = docSnap.data().stock;
+                                await invRef.update({ stock: currentStock - item.qty });
+                            }
+                        }
+                    }
+                } else {
+                    // Local Memory Update
+                    const pIdx = patientsDB.findIndex(p => p.hn === patientObj.hn);
+                    if(pIdx > -1) patientsDB[pIdx] = patientObj; else patientsDB.push(patientObj);
+                    visitLogs.push(newCase);
+                }
+
+                // Google Sheets Backup (Always run if URL exists)
+                const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbysXB4mr-VL-2waYUm-XBZs5OnCyqz9N2YaUotGISZ6qum7NgbDsdb8OwPAkd3IY3_r/exec"; // ใส่ URL ที่นี่
+                if(GOOGLE_SCRIPT_URL) {
+                    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newCase) }).catch(e=>console.error("Sheets err:",e));
+                }
+
+                alert('บันทึกเคสการรักษาเรียบร้อยแล้ว!');
+                orderItems = []; // clear cart explicitly so clearEMRForm doesn't restore local stock
+                clearEMRForm(); renderReports(); switchView('reports');
+
+            } catch (error) {
+                console.error("Save Error:", error);
+                alert("เกิดข้อผิดพลาดในการบันทึก: " + error.message);
+            }
+        }
+
+        function renderInventoryTable() {
+            const tbody = document.getElementById('inventoryTableBody');
+            const search = document.getElementById('searchInv').value.toLowerCase();
+            const filterType = document.getElementById('filterInvType').value;
+            tbody.innerHTML = '';
+            
+            inventory.forEach(item => {
+                if(filterType !== 'ALL' && item.type !== filterType) return;
+                if(search && !item.name.toLowerCase().includes(search) && !item.id.toLowerCase().includes(search)) return;
+
+                let typeBadge = item.type === 'med' ? '<span class="bg-blue-900/50 text-blue-400 text-[10px] px-2 py-1 rounded border border-blue-700/50">ยา</span>' : 
+                                item.type === 'supply' ? '<span class="bg-amber-900/50 text-amber-400 text-[10px] px-2 py-1 rounded border border-amber-700/50">เวชภัณฑ์</span>' : 
+                                '<span class="bg-purple-900/50 text-purple-400 text-[10px] px-2 py-1 rounded border border-purple-700/50">หัตถการ</span>';
+
+                let stockText = item.stock; let stockStyle = "text-slate-300";
+                if(item.type === 'procedure') { stockText = '-'; stockStyle = "text-slate-500"; } 
+                else if(item.stock < 50) { stockStyle = "text-red-400 font-bold bg-red-500/10 px-2 py-1 rounded"; } 
+                else { stockStyle = "text-emerald-400 font-medium"; }
+
+                let expText = '-'; let expStyle = "text-slate-400";
+                if(item.type !== 'procedure' && item.expiry) {
+                    expText = item.expiry;
+                    const diffDays = Math.ceil((new Date(item.expiry) - new Date()) / (1000 * 60 * 60 * 24));
+                    if (diffDays < 0) { expStyle = "text-red-400 font-bold bg-red-500/10 px-2 py-1 rounded"; expText = "หมดอายุ"; } 
+                    else if (diffDays <= 90) { expStyle = "text-orange-400 font-bold"; }
+                }
+
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-800/50 transition">
+                        <td class="px-4 py-3 font-mono text-slate-400">${item.id}</td>
+                        <td class="px-4 py-3 font-medium text-slate-200">${item.name}</td>
+                        <td class="px-4 py-3 text-center">${typeBadge}</td>
+                        <td class="px-4 py-3 text-right"><span class="${stockStyle}">${stockText}</span></td>
+                        <td class="px-4 py-3 text-center text-slate-500 text-xs">${item.unit}</td>
+                        <td class="px-4 py-3 text-center text-xs"><span class="${expStyle}">${expText}</span></td>
+                        <td class="px-4 py-3 text-center">
+                            <button onclick="editInvItem('${item.id}')" class="text-blue-400 hover:text-blue-300 transition mr-3"><i class="fa-solid fa-pen-to-square"></i></button>
+                            <button onclick="deleteInvItem('${item.id}')" class="text-red-500 hover:text-red-400 transition"><i class="fa-solid fa-trash-can"></i></button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        async function saveInventoryItem(e) {
+            e.preventDefault();
+            const mode = document.getElementById('invMode').value;
+            const id = document.getElementById('invId').value.trim();
+            const newItem = {
+                id: id,
+                name: document.getElementById('invName').value.trim(),
+                type: document.getElementById('invType').value,
+                stock: parseInt(document.getElementById('invStock').value),
+                unit: document.getElementById('invUnit').value.trim(),
+                expiry: document.getElementById('invExpiry').value
+            };
+
+            if(mode === 'add' && inventory.find(i => i.id === id)) return alert('รหัสนี้มีอยู่แล้ว');
+
+            if(isFirebaseActive) {
+                await db.collection("inventory").doc(id).set(newItem);
+            } else {
+                if(mode === 'add') inventory.push(newItem);
+                else { const idx = inventory.findIndex(i => i.id === id); if(idx > -1) inventory[idx] = newItem; }
+                renderInventoryTable(); updateItemList();
+            }
+            clearInvForm();
+        }
+
+        function editInvItem(id) {
+            const item = inventory.find(i => i.id === id); if(!item) return;
+            document.getElementById('invMode').value = 'edit';
+            document.getElementById('invId').value = item.id; document.getElementById('invId').readOnly = true;
+            document.getElementById('invName').value = item.name; document.getElementById('invType').value = item.type;
+            document.getElementById('invStock').value = item.stock; document.getElementById('invUnit').value = item.unit;
+            document.getElementById('invExpiry').value = item.expiry || '';
+        }
+
+        async function deleteInvItem(id) {
+            if(confirm('ลบรายการนี้ออกจากระบบ?')) {
+                if (isFirebaseActive) {
+                    await db.collection("inventory").doc(id).delete();
+                } else {
+                    inventory = inventory.filter(i => i.id !== id);
+                    renderInventoryTable(); updateItemList();
+                }
+            }
+        }
+
+        function clearInvForm() {
+            document.getElementById('invMode').value = 'add';
+            document.getElementById('invId').value = ''; document.getElementById('invId').readOnly = false;
+            document.getElementById('invName').value = ''; document.getElementById('invStock').value = '';
+            document.getElementById('invUnit').value = ''; document.getElementById('invExpiry').value = '';
+        }
+
+        function initCharts() {
+            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.font.family = "'IBM Plex Sans Thai', sans-serif";
+            const createDoughnut = (ctxId) => new Chart(document.getElementById(ctxId).getContext('2d'), {
+                type: 'doughnut', data: { labels: [], datasets: [{ data: [], backgroundColor: ['#10b981','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#64748b'], borderWidth: 0 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: {size: 10} } } }, cutout: '70%' }
+            });
+            charts.company = new Chart(document.getElementById('companyChart').getContext('2d'), {
+                type: 'bar', data: { labels: [], datasets: [{ data: [], backgroundColor: '#10b981', borderRadius: 4 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#334155' } }, x: { grid: { display: false } } } }
+            });
+            charts.dx = createDoughnut('dxChart');
+            charts.plan = createDoughnut('planChart');
+            charts.gender = createDoughnut('genderChart');
+        }
+
+        function renderPatientTable() {
+            const tbody = document.getElementById('patientTableBody');
+            const search = document.getElementById('dbSearchInput').value.toLowerCase();
+            const filterCo = document.getElementById('filterCompany').value;
+            tbody.innerHTML = '';
+            patientsDB.forEach(p => {
+                if(filterCo !== 'ALL' && p.company !== filterCo) return;
+                if(search && !p.name.toLowerCase().includes(search) && !p.hn.toLowerCase().includes(search)) return;
+                const allergyStyle = p.allergy !== '-' ? 'text-red-400 font-semibold' : 'text-slate-500';
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-800/50 transition">
+                        <td class="px-4 py-3 font-medium text-emerald-400">${p.hn}</td>
+                        <td class="px-4 py-3 text-slate-200">${p.name}</td>
+                        <td class="px-4 py-3 text-slate-400">${p.gender} / ${p.age}</td>
+                        <td class="px-4 py-3 text-slate-400">${p.company}</td>
+                        <td class="px-4 py-3"><span class="block text-xs text-slate-400">โรค: ${p.med}</span><span class="block text-xs ${allergyStyle}">แพ้: ${p.allergy}</span></td>
+                        <td class="px-4 py-3 text-center">
+                            <button onclick="sendToEMR('${p.hn}')" class="bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white px-3 py-1.5 rounded text-xs transition border border-emerald-500/30"><i class="fa-solid fa-file-medical"></i> ส่งตรวจ</button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        function sendToEMR(hn) {
+            document.getElementById('quickSearchInput').value = hn;
+            quickSearchPatient();
+            switchView('emr');
+        }
+
+        function updateReportFilterUI() {
+            const type = document.getElementById('reportFilterType').value;
+            ['reportFilterDate', 'reportFilterMonth', 'reportFilterYear'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            if(type === 'daily') document.getElementById('reportFilterDate').classList.remove('hidden');
+            if(type === 'monthly') document.getElementById('reportFilterMonth').classList.remove('hidden');
+            if(type === 'yearly') document.getElementById('reportFilterYear').classList.remove('hidden');
+            renderReports();
+        }
+
+        function renderReports() {
+            const type = document.getElementById('reportFilterType').value;
+            let filterValue = type === 'daily' ? document.getElementById('reportFilterDate').value : type === 'monthly' ? document.getElementById('reportFilterMonth').value : document.getElementById('reportFilterYear').value;
+            const logs = visitLogs.filter(log => !filterValue || log.timestamp.startsWith(filterValue));
+
+            let workAcc = 0, refer = 0;
+            let cComp = {}, cDx = {}, cPlan = {}, cGender = {};
+
+            logs.forEach(log => {
+                if(log.visitType.includes('อุบัติเหตุในงาน')) workAcc++;
+                if(log.plan.includes('Refer') || log.plan.includes('ส่งต่อ')) refer++;
+                cComp[log.company] = (cComp[log.company] || 0) + 1; cDx[log.dxSystem] = (cDx[log.dxSystem] || 0) + 1;
+                cPlan[log.plan] = (cPlan[log.plan] || 0) + 1; cGender[log.gender] = (cGender[log.gender] || 0) + 1;
+            });
+
+            document.getElementById('statTotal').innerText = logs.length; document.getElementById('statWorkAcc').innerText = workAcc;
+            document.getElementById('statGen').innerText = logs.length - workAcc; document.getElementById('statRefer').innerText = refer;
+
+            if(charts.company) {
+                charts.company.data.labels = Object.keys(cComp); charts.company.data.datasets[0].data = Object.values(cComp); charts.company.update();
+                charts.dx.data.labels = Object.keys(cDx); charts.dx.data.datasets[0].data = Object.values(cDx); charts.dx.update();
+                charts.plan.data.labels = Object.keys(cPlan); charts.plan.data.datasets[0].data = Object.values(cPlan); charts.plan.update();
+                const lang = document.getElementById('reportLang').value;
+                const tGen = lang === 'th' ? {'M':'ชาย','F':'หญิง','O':'อื่นๆ','-':'-'} : lang === 'en' ? {'M':'Male','F':'Female','O':'Other','-':'-'} : {'M':'男','F':'女','O':'其他','-':'-'};
+                charts.gender.data.labels = Object.keys(cGender).map(k => tGen[k] || k); charts.gender.data.datasets[0].data = Object.values(cGender); charts.gender.update();
+            }
+
+            const tbody = document.getElementById('reportTableBody'); tbody.innerHTML = '';
+            if(logs.length === 0) return tbody.innerHTML = `<tr><td colspan="10" class="px-3 py-6 text-center text-slate-500">ไม่มีข้อมูล</td></tr>`;
+
+            logs.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)).forEach(log => {
+                const d = new Date(log.timestamp);
+                const dt = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-800/50 transition">
+                        <td class="px-3 py-2 text-slate-400">${dt}</td><td class="px-3 py-2 text-emerald-400 font-medium">${log.hn}</td>
+                        <td class="px-3 py-2 text-slate-300">${log.name}</td><td class="px-3 py-2 text-slate-400">${log.gender}</td>
+                        <td class="px-3 py-2">${log.company}</td><td class="px-3 py-2">${log.visitType}</td><td class="px-3 py-2 text-purple-400">${log.dxSystem}</td>
+                        <td class="px-3 py-2 text-yellow-400">${log.dx}</td><td class="px-3 py-2 ${log.plan.includes('Refer') ? 'text-red-400' : 'text-blue-400'}">${log.plan}</td>
+                        <td class="px-3 py-2 truncate max-w-[150px]" title="${log.items}">${log.items}</td>
+                    </tr>`;
+            });
+            translateReports();
+        }
+
+        const trans = {
+            th: { title: "สรุปรายงานสถิติคลินิก", total: "จำนวนเคสทั้งหมด (ครั้ง)", work: "อุบัติเหตุในงาน", gen: "ป่วย/อุบัติเหตุทั่วไป", refer: "ฉุกเฉิน / รีเฟอร์", comp: "สถิติแยกตามบริษัท", dx: "สถิติแยกระบบร่างกาย", plan: "สถิติแผนการรักษา", genCh: "สถิติแยกตามเพศ" },
+            en: { title: "Clinic Statistical Report", total: "Total Cases", work: "Work Accident", gen: "Gen. Illness/Accident", refer: "Emergency / Refer", comp: "Cases by Company", dx: "Cases by System (Dx)", plan: "Treatment Plan", genCh: "Cases by Gender" },
+            cn: { title: "诊所统计报告", total: "总病例 (次)", work: "工伤", gen: "一般疾病/意外", refer: "急诊 / 转院", comp: "按公司统计", dx: "按身体系统统计", plan: "按治疗方案统计", genCh: "按性别统计" }
+        };
+
+        function translateReports() {
+            const lang = document.getElementById('reportLang').value; const t = trans[lang];
+            document.getElementById('lblTotal').innerText = t.total; document.getElementById('lblWork').innerText = t.work;
+            document.getElementById('lblGen').innerText = t.gen; document.getElementById('lblRefer').innerText = t.refer;
+            document.getElementById('lblCompChart').innerText = t.comp; document.getElementById('lblDxChart').innerText = t.dx;
+            document.getElementById('lblPlanChart').innerText = t.plan; document.getElementById('lblGenChart').innerText = t.genCh;
+            document.getElementById('printTitle').innerText = t.title; document.getElementById('pLblTotal').innerText = t.total; 
+            document.getElementById('pLblWork').innerText = t.work; document.getElementById('pLblGen').innerText = t.gen; 
+            document.getElementById('pLblRefer').innerText = t.refer; document.getElementById('pLblComp').innerText = t.comp; 
+            document.getElementById('pLblDx').innerText = t.dx; document.getElementById('pLblPlan').innerText = t.plan; 
+            document.getElementById('pLblGender').innerText = t.genCh;
+            renderReportsGenderChartLabel(lang);
+        }
+
+        function renderReportsGenderChartLabel(lang) {
+            const type = document.getElementById('reportFilterType').value;
+            let filterValue = type === 'daily' ? document.getElementById('reportFilterDate').value : type === 'monthly' ? document.getElementById('reportFilterMonth').value : document.getElementById('reportFilterYear').value;
+            const logs = visitLogs.filter(log => !filterValue || log.timestamp.startsWith(filterValue));
+            let cGender = {}; logs.forEach(log => { cGender[log.gender] = (cGender[log.gender] || 0) + 1; });
+            const tGen = lang === 'th' ? {'M':'ชาย','F':'หญิง','O':'อื่นๆ','-':'-'} : lang === 'en' ? {'M':'Male','F':'Female','O':'Other','-':'-'} : {'M':'男','F':'女','O':'其他','-':'-'};
+            charts.gender.data.labels = Object.keys(cGender).map(k => tGen[k] || k); charts.gender.update();
+        }
+
+        function printA4() {
+            translateReports();
+            const type = document.getElementById('reportFilterType').value;
+            let v = type === 'daily' ? document.getElementById('reportFilterDate').value : type === 'monthly' ? document.getElementById('reportFilterMonth').value : document.getElementById('reportFilterYear').value;
+            document.getElementById('printDateRange').innerText = v || "ทั้งหมด";
+            document.getElementById('pStatTotal').innerText = document.getElementById('statTotal').innerText; document.getElementById('pStatWork').innerText = document.getElementById('statWorkAcc').innerText;
+            document.getElementById('pStatGen').innerText = document.getElementById('statGen').innerText; document.getElementById('pStatRefer').innerText = document.getElementById('statRefer').innerText;
+            
+            Chart.defaults.color = '#000'; charts.company.update(); charts.dx.update(); charts.plan.update(); charts.gender.update();
+            setTimeout(() => {
+                document.getElementById('printImgComp').src = document.getElementById('companyChart').toDataURL('image/png'); document.getElementById('printImgDx').src = document.getElementById('dxChart').toDataURL('image/png');
+                document.getElementById('printImgPlan').src = document.getElementById('planChart').toDataURL('image/png'); document.getElementById('printImgGender').src = document.getElementById('genderChart').toDataURL('image/png');
+                window.print();
+                Chart.defaults.color = '#94a3b8'; charts.company.update(); charts.dx.update(); charts.plan.update(); charts.gender.update();
+            }, 500);
+        }
+
+        function exportToExcel() {
+            const table = document.getElementById('reportTable'); const wb = XLSX.utils.table_to_book(table, {sheet: "Report"});
+            const type = document.getElementById('reportFilterType').value;
+            let filterValue = type === 'daily' ? document.getElementById('reportFilterDate').value : type === 'monthly' ? document.getElementById('reportFilterMonth').value : document.getElementById('reportFilterYear').value;
+            XLSX.writeFile(wb, `Clinic_Report_${type.charAt(0).toUpperCase() + type.slice(1)}_${filterValue || new Date().getTime()}.xlsx`);
+        }
+        
+        function exportInventoryToExcel() {
+            const wb = XLSX.utils.table_to_book(document.getElementById('inventoryTableExport'), {sheet: "Inventory"});
+            XLSX.writeFile(wb, `Clinic_Inventory_${new Date().getTime()}.xlsx`);
+        }
+    </script>
+</body>
+</html>
